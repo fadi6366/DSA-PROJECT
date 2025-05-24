@@ -47,9 +47,7 @@ The project emphasizes the use of core DSA concepts including **custom data stru
 
 ## 🧱 System Structure (UML)
 
-> _Add UML diagram image or link to PDF version._
-
----
+> https://drive.google.com/file/d/1_7o_vA2EuVIZPZ3qhS9Q70Jje74xkgDb/view?usp=drive_link
 
 ## 🚀 Getting Started
 
