@@ -310,28 +310,49 @@ public:
 
         return order;
     }
+
+    ~Order() {
+        delete deliveryAddress;
+        delete paymentInfo;
+    }
 };
 
 class Restaurant {
 private:
-
-
     void quickSort(vector<Order*>& orders, int low, int high) {
         if (low < high) {
-            double pivot = orders[high]->getTotal();
-            int i = low - 1;        
-            for (int j = low; j < high; j++) {
-                if (orders[j]->getTotal() <= pivot) {
+            // Use median-of-three pivot selection
+            int mid = low + (high - low) / 2;
+            if (orders[low]->getTotal() > orders[mid]->getTotal()) 
+                swap(orders[low], orders[mid]);
+            if (orders[mid]->getTotal() > orders[high]->getTotal())
+                swap(orders[mid], orders[high]);
+            if (orders[low]->getTotal() > orders[mid]->getTotal())
+                swap(orders[low], orders[mid]);
+            
+            double pivot = orders[mid]->getTotal();
+            int i = low - 1;
+            int j = high + 1;
+            
+            while (true) {
+                do {
                     i++;
-                    swap(orders[i], orders[j]);
-                }
+                } while (orders[i]->getTotal() < pivot);
+                
+                do {
+                    j--;
+                } while (orders[j]->getTotal() > pivot);
+                
+                if (i >= j) break;
+                
+                swap(orders[i], orders[j]);
             }
-            swap(orders[i + 1], orders[high]);          
-            int pi = i + 1;
-            quickSort(orders, low, pi - 1);
-            quickSort(orders, pi + 1, high);
+            
+            quickSort(orders, low, j);
+            quickSort(orders, j + 1, high);
         }
-    }   
+    }
+
     void mergeSort(vector<Order*>& orders, int left, int right) {
         if (left < right) {
             int mid = left + (right - left) / 2;
@@ -376,38 +397,69 @@ private:
     }
 
     void saveOrdersToFile(const string& filename) {
-        ofstream outFile(filename,ios::app);
+        ofstream outFile(filename, ios::trunc); // Use trunc instead of app to avoid duplicates
         if (!outFile) {
             cerr << "Error opening file for writing: " << filename << endl;
             return;
         }
-        for (const auto& pair : orderHistory) {
-            outFile << pair.second->serialize() << "\n";
+        try {
+            for (const auto& pair : orderHistory) {
+                outFile << pair.second->serialize() << "\n";
+            }
+            outFile.close();
+            setcolor(10);
+            cout << "Orders saved to " << filename << endl;
+            setcolor(7);
+        } catch (const exception& e) {
+            cerr << "Error saving orders: " << e.what() << endl;
+            outFile.close();
         }
-        outFile.close();
-        setcolor(10);
-        cout << "Orders saved to " << filename << endl;
-        setcolor(7);
     }
     void loadOrdersFromFile(const string& filename) {
         ifstream inFile(filename);
         if (!inFile) {
-            // No file is ok - means no previous orders saved yet.
             return;
         }
 
-        string line;
-        orderHistory.clear();
-        while (getline(inFile, line)) {
-            if (line.empty()) continue;
-            Order* order = Order::deserialize(line, menuMap);
-            orderHistory[order->getId()] = order;
-            // We do not push to orderQueue here as it's for processing only
+        try {
+            string line;
+            orderHistory.clear();
+            while (getline(inFile, line)) {
+                if (line.empty()) continue;
+                Order* order = Order::deserialize(line, menuMap);
+                if (order) {
+                    orderHistory[order->getId()] = order;
+                }
+            }
+            inFile.close();
+        } catch (const exception& e) {
+            cerr << "Error loading orders: " << e.what() << endl;
+            inFile.close();
         }
-        inFile.close();
     }
 
 public:
+    bool validateInput(const string& input, const string& type) {
+        if (input.empty()) return false;
+        
+        if (type == "name") {
+            return all_of(input.begin(), input.end(), [](char c) {
+                return isalpha(c) || c == ' ' || c == '-';
+            });
+        }
+        else if (type == "zip") {
+            return all_of(input.begin(), input.end(), ::isdigit) && input.length() == 5;
+        }
+        else if (type == "expiry") {
+            regex pattern("^(0[1-9]|1[0-2])/([0-9]{2})$");
+            return regex_match(input, pattern);
+        }
+        else if (type == "cvv") {
+            return all_of(input.begin(), input.end(), ::isdigit) && input.length() == 3;
+        }
+        return true;
+    }
+
     BST<MenuItem*> menuTree;
     OrderQueue<Order*> orderQueue;
     unordered_map<string, Order*> orderHistory;
@@ -445,6 +497,8 @@ public:
         }
     }
     void placeOrder(Order* order) {
+        if (!order) return;
+        
         system("cls");
         int priority = static_cast<int>(order->getTotal() * 10);
         orderQueue.push(order, priority);
@@ -454,7 +508,6 @@ public:
         cout << "Order placed successfully. Order ID: " << order->getId() << endl;
         setcolor(7);
 
-        // Save orders automatically after new order
         saveOrdersToFile("orders.txt");
     }   
     void displayOrderDetails(const Order* order) {
@@ -653,6 +706,20 @@ public:
         }
     }
     
+    ~Restaurant() {
+        // Clean up menu items
+        for (const auto& pair : menuMap) {
+            delete pair.second;
+        }
+        // Clean up orders
+        for (const auto& pair : orderHistory) {
+            delete pair.second;
+        }
+        // Clean up drivers
+        for (auto driver : availableDrivers) {
+            delete driver;
+        }
+    }
 };
 
 void showtitle(){
@@ -661,87 +728,124 @@ void showtitle(){
     cout<<"====================================="<<endl;
 }
 void showmenu(){
+    system("cls");
+    
+    cout << "\n=== Food Delivery System Menu ===" << endl;
     setcolor(14);
-    cout<<"1. Display Menu"<<endl;
-    cout<<"2. Place Order"<<endl; 
-    cout<<"3. Track Order"<<endl;
-    cout<<"4. View Order History"<<endl;
-    cout<<"5. Process Orders"<<endl;
-    cout<<"6. Exit"<<endl;
+    cout << "1. Display Menu" << endl;
+    cout << "2. Place Order" << endl; 
+    cout << "3. Track Order" << endl;
+    cout << "4. View Order History" << endl;
+    cout << "5. Process Orders" << endl;
+    cout << "6. Exit" << endl;
     setcolor(7);
-    cout<<"-------------------------------------"<<endl;
+    cout << "-------------------------------------" << endl;
 }
 void enterchoise(){
     setcolor(15);
     cout<<"Enter your choice: ";
 }
+
+void handleInvalidInput() {
+    setcolor(12);
+    cout << "Invalid input. Please try again." << endl;
+    setcolor(7);
+    cin.clear();
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+}
+
 int main() {
     showtitle();
-    Restaurant restaurant;  
-    restaurant.addMenuItem(new MenuItem("CH1", "Kung Pao Chicken", 15.99, "Chinese Food", 25));
-    restaurant.addMenuItem(new MenuItem("CH2", "Sweet & Sour Pork", 16.99, "Chinese Food", 25));
-    restaurant.addMenuItem(new MenuItem("CH3", "Chow Mein", 13.99, "Chinese Food", 20));
-    restaurant.addMenuItem(new MenuItem("CH4", "Spring Rolls", 7.99, "Chinese Food", 15));
-    restaurant.addMenuItem(new MenuItem("CH5", "Fried Rice", 11.99, "Chinese Food", 20));
-    restaurant.addMenuItem(new MenuItem("IT1", "Spaghetti Carbonara", 14.99, "Italian Food", 25));
-    restaurant.addMenuItem(new MenuItem("IT2", "Fettuccine Alfredo", 15.99, "Italian Food", 25));
-    restaurant.addMenuItem(new MenuItem("IT3", "Lasagna", 16.99, "Italian Food", 30));
-    restaurant.addMenuItem(new MenuItem("IT4", "Risotto", 17.99, "Italian Food", 30));
-    restaurant.addMenuItem(new MenuItem("IT5", "Tiramisu", 8.99, "Italian Dessert", 10));
-    restaurant.addMenuItem(new MenuItem("MX1", "Beef Tacos", 12.99, "Mexican Food", 20));
-    restaurant.addMenuItem(new MenuItem("MX2", "Chicken Quesadilla", 13.99, "Mexican Food", 20));
-    restaurant.addMenuItem(new MenuItem("MX3", "Beef Burrito", 14.99, "Mexican Food", 25));
-    restaurant.addMenuItem(new MenuItem("MX4", "Nachos Supreme", 11.99, "Mexican Food", 15));
-    restaurant.addMenuItem(new MenuItem("MX5", "Guacamole & Chips", 8.99, "Mexican Food", 10));
-    restaurant.addMenuItem(new MenuItem("SF1", "Grilled Salmon", 19.99, "Seafood", 25));
-    restaurant.addMenuItem(new MenuItem("SF2", "Fish & Chips", 16.99, "Seafood", 20));
-    restaurant.addMenuItem(new MenuItem("SF3", "Shrimp Scampi", 18.99, "Seafood", 25));
-    restaurant.addMenuItem(new MenuItem("SF4", "Lobster Tail", 29.99, "Seafood", 35));
-    restaurant.addMenuItem(new MenuItem("SF5", "Calamari", 13.99, "Seafood", 20));
-    restaurant.addMenuItem(new MenuItem("DF1", "Chicken Biryani", 16.99, "Desi Food", 25));
-    restaurant.addMenuItem(new MenuItem("DF2", "Beef Karahi", 18.99, "Desi Food", 30));
-    restaurant.addMenuItem(new MenuItem("DF3", "Chicken Tikka", 14.99, "Desi Food", 20));
-    restaurant.addMenuItem(new MenuItem("DF4", "Seekh Kabab", 12.99, "Desi Food", 15));
-    restaurant.addMenuItem(new MenuItem("DF5", "Nihari", 17.99, "Desi Food", 35));
-    restaurant.addMenuItem(new MenuItem("DF6", "Butter Naan", 2.99, "Desi Food", 10));
-    restaurant.addMenuItem(new MenuItem("DFD1", "Gulab Jamun", 5.99, "Desi Food Dessert", 5));
-    restaurant.addMenuItem(new MenuItem("DFD2", "Kheer", 6.99, "Desi Food Dessert", 15));
-    restaurant.addMenuItem(new MenuItem("DFB1", "Lassi", 4.99, "Desi Food Beverage", 5));
-    restaurant.addMenuItem(new MenuItem("DFB2", "Chai", 2.99, "Desi Food Beverage", 5));
-    restaurant.addMenuItem(new MenuItem("P1", "Margherita Pizza", 12.99, "Pizza", 20));
-    restaurant.addMenuItem(new MenuItem("P2", "Pepperoni Pizza", 14.99, "Pizza", 20));
-    restaurant.addMenuItem(new MenuItem("P3", "BBQ Chicken Pizza", 15.99, "Pizza", 20));
-    restaurant.addMenuItem(new MenuItem("P4", "Vegetarian Pizza", 13.99, "Pizza", 20));
-    restaurant.addMenuItem(new MenuItem("B1", "Classic Burger", 9.99, "Burger", 15));
-    restaurant.addMenuItem(new MenuItem("B2", "Cheese Burger", 11.99, "Burger", 15));
-    restaurant.addMenuItem(new MenuItem("B3", "Veggie Burger", 10.99, "Burger", 15));
-    restaurant.addMenuItem(new MenuItem("S1", "Caesar Salad", 8.99, "Salad", 10));
-    restaurant.addMenuItem(new MenuItem("S2", "Greek Salad", 9.99, "Salad", 10));
-    restaurant.addMenuItem(new MenuItem("D1", "Chocolate Cake", 6.99, "Dessert", 5));
-    restaurant.addMenuItem(new MenuItem("D2", "Ice Cream", 4.99, "Dessert", 5));
-    restaurant.addMenuItem(new MenuItem("D3", "Apple Pie", 5.99, "Dessert", 5));  
-    restaurant.addMenuItem(new MenuItem("BV1", "Mango Juice", 6.99, "Beverage", 5));
-    restaurant.addMenuItem(new MenuItem("BV2", "Lemonade", 4.99, "Beverage", 5));
-    restaurant.addMenuItem(new MenuItem("BV3", "Water", 2.99, "Beverage", 5));
-    restaurant.addMenuItem(new MenuItem("BV4", "Soda", 3.99, "Beverage", 5));
+    Restaurant restaurant;
+    
+    // Initialize menu items
+    vector<MenuItem*> menuItems = {
+        new MenuItem("CH1", "Kung Pao Chicken", 15.99, "Chinese Food", 25),
+        new MenuItem("CH2", "Sweet & Sour Pork", 16.99, "Chinese Food", 25),
+        new MenuItem("CH3", "Chow Mein", 13.99, "Chinese Food", 20),
+        new MenuItem("CH4", "Spring Rolls", 7.99, "Chinese Food", 15),
+        new MenuItem("CH5", "Fried Rice", 11.99, "Chinese Food", 20),
+        new MenuItem("IT1", "Spaghetti Carbonara", 14.99, "Italian Food", 25),
+        new MenuItem("IT2", "Fettuccine Alfredo", 15.99, "Italian Food", 25),
+        new MenuItem("IT3", "Lasagna", 16.99, "Italian Food", 30),
+        new MenuItem("IT4", "Risotto", 17.99, "Italian Food", 30),
+        new MenuItem("IT5", "Tiramisu", 8.99, "Italian Dessert", 10),
+        new MenuItem("MX1", "Beef Tacos", 12.99, "Mexican Food", 20),
+        new MenuItem("MX2", "Chicken Quesadilla", 13.99, "Mexican Food", 20),
+        new MenuItem("MX3", "Beef Burrito", 14.99, "Mexican Food", 25),
+        new MenuItem("MX4", "Nachos Supreme", 11.99, "Mexican Food", 15),
+        new MenuItem("MX5", "Guacamole & Chips", 8.99, "Mexican Food", 10),
+        new MenuItem("SF1", "Grilled Salmon", 19.99, "Seafood", 25),
+        new MenuItem("SF2", "Fish & Chips", 16.99, "Seafood", 20),
+        new MenuItem("SF3", "Shrimp Scampi", 18.99, "Seafood", 25),
+        new MenuItem("SF4", "Lobster Tail", 29.99, "Seafood", 35),
+        new MenuItem("SF5", "Calamari", 13.99, "Seafood", 20),
+        new MenuItem("DF1", "Chicken Biryani", 16.99, "Desi Food", 25),
+        new MenuItem("DF2", "Beef Karahi", 18.99, "Desi Food", 30),
+        new MenuItem("DF3", "Chicken Tikka", 14.99, "Desi Food", 20),
+        new MenuItem("DF4", "Seekh Kabab", 12.99, "Desi Food", 15),
+        new MenuItem("DF5", "Nihari", 17.99, "Desi Food", 35),
+        new MenuItem("DF6", "Butter Naan", 2.99, "Desi Food", 10),
+        new MenuItem("DFD1", "Gulab Jamun", 5.99, "Desi Food Dessert", 5),
+        new MenuItem("DFD2", "Kheer", 6.99, "Desi Food Dessert", 15),
+        new MenuItem("DFB1", "Lassi", 4.99, "Desi Food Beverage", 5),
+        new MenuItem("DFB2", "Chai", 2.99, "Desi Food Beverage", 5),
+        new MenuItem("P1", "Margherita Pizza", 12.99, "Pizza", 20),
+        new MenuItem("P2", "Pepperoni Pizza", 14.99, "Pizza", 20),
+        new MenuItem("P3", "BBQ Chicken Pizza", 15.99, "Pizza", 20),
+        new MenuItem("P4", "Vegetarian Pizza", 13.99, "Pizza", 20),
+        new MenuItem("B1", "Classic Burger", 9.99, "Burger", 15),
+        new MenuItem("B2", "Cheese Burger", 11.99, "Burger", 15),
+        new MenuItem("B3", "Veggie Burger", 10.99, "Burger", 15),
+        new MenuItem("S1", "Caesar Salad", 8.99, "Salad", 10),
+        new MenuItem("S2", "Greek Salad", 9.99, "Salad", 10),
+        new MenuItem("D1", "Chocolate Cake", 6.99, "Dessert", 5),
+        new MenuItem("D2", "Ice Cream", 4.99, "Dessert", 5),
+        new MenuItem("D3", "Apple Pie", 5.99, "Dessert", 5),  
+        new MenuItem("BV1", "Mango Juice", 6.99, "Beverage", 5),
+        new MenuItem("BV2", "Lemonade", 4.99, "Beverage", 5),
+        new MenuItem("BV3", "Water", 2.99, "Beverage", 5),
+        new MenuItem("BV4", "Soda", 3.99, "Beverage", 5)
+    };
+    
+    for (auto item : menuItems) {
+        restaurant.addMenuItem(item);
+    }
+    
     int choice;
     while (true) {
         showmenu();
         enterchoise();
-        cin >> choice;      
+        
+        if (!(cin >> choice)) {
+            handleInvalidInput();
+            continue;
+        }
+        
         switch (choice) {
             case 1:
                 restaurant.displayMenu();
-                break;             
+                cout << "\nPress any key to return to main menu...";
+                _getch();
+                break;
             case 2: {
                 string customerName, phoneNumber;
                 cout << "Enter customer name: ";
                 cin.ignore();
-                getline(cin, customerName);                
+                getline(cin, customerName);
+                
+                if (!restaurant.validateInput(customerName, "name")) {
+                    setcolor(12);
+                    cout << "Invalid name format. Please use only letters, spaces, and hyphens." << endl;
+                    setcolor(7);
+                    break;
+                }
+                
                 do {
                     cout << "Enter phone number (format: XXX-XXX-XXXX): ";
                     getline(cin, phoneNumber);
                 } while (!restaurant.validatePhoneNumber(phoneNumber));
+                
                 string street, city, zip;
                 cout << "Enter delivery address:\n";
                 cout << "Street address: ";
@@ -787,37 +891,35 @@ int main() {
                 restaurant.placeOrder(order);
                 restaurant.displayOrderDetails(order);
                 break;
-            }                              
+            }
             case 3: {
                 string orderId;
                 setcolor(15);
                 cout << "Enter order ID to track: ";
                 setcolor(7);
                 cin >> orderId;
-                restaurant.trackOrder(orderId);             
+                restaurant.trackOrder(orderId);
                 break;
-            }            
-            case 4: {
-                restaurant.viewOrderHistory(); 
+            }
+            case 4:
+                restaurant.viewOrderHistory();
                 cout << "\nPress any key to return to main menu...";
                 _getch();
-                system("cls");
                 break;
-            }   
             case 5:
-                {restaurant.processOrders();
-                break;}           
+                restaurant.processOrders();
+                cout << "\nPress any key to return to main menu...";
+                _getch();
+                break;
             case 6:
                 setcolor(5);
                 cout << "Thank you for using the Food Ordering System!" << endl;
                 setcolor(7);
-                return 0;               
+                return 0;
             default:
-                setcolor(12);
-                cout << "Invalid choice. Please try again." << endl;
-                setcolor(7);
+                handleInvalidInput();
         }
-    }    
+    }
     return 0;
 }
 
