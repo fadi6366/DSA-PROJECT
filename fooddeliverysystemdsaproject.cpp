@@ -397,7 +397,7 @@ private:
     }
 
     void saveOrdersToFile(const string& filename) {
-        ofstream outFile(filename, ios::trunc); // Use trunc instead of app to avoid duplicates
+        ofstream outFile(filename, ios::app); 
         if (!outFile) {
             cerr << "Error opening file for writing: " << filename << endl;
             return;
