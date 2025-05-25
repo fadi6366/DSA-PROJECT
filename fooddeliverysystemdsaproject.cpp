@@ -887,9 +887,12 @@ int main() {
                     } else {
                         cout << "Invalid item ID, try again." << endl;
                     }
-                }            
+                } 
+                restaurant.displayOrderDetails(order); 
+                cout << "\nPress any key to continue...";
+                _getch();          
                 restaurant.placeOrder(order);
-                restaurant.displayOrderDetails(order);
+                
                 break;
             }
             case 3: {
